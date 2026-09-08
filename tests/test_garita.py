@@ -4267,3 +4267,58 @@ class UnNumeroUnHallazgo(unittest.TestCase):
         detectados = {h.detector for h in self._hallazgos(texto)}
         self.assertEqual(detectados, {"curp", "rfc"})
         self.assertEqual(PAIS_DE_DETECTOR["curp"], PAIS_DE_DETECTOR["rfc"])
+
+
+class ElParametroQueSeGuardaASiMismo(unittest.TestCase):
+    """v0.34.0: medido con el motor sobre el consumidor más grande, 17 de
+    sus 20 avisos eran este único patrón — `self.x = x`, el constructor de
+    Python que guarda su propio parámetro. El valor no es un secreto nuevo:
+    es el nombre del parámetro repetido. El filtro anterior sólo reconocía
+    la referencia con punto (`config.token`) y la indexada
+    (`os.environ[...]`), no la igualdad entre el valor y el identificador
+    asignado."""
+
+    def test_self_x_igual_a_x_se_silencia(self):
+        for linea in (
+            "self.azure_client_secret = azure_client_secret",
+            "self.database_password = database_password",
+            "self.auth_token = auth_token",
+            "this.client_secret = client_secret",
+        ):
+            self.assertFalse(list(buscar_asignaciones(linea + "\n", "f.py")),
+                              linea)
+
+    def test_sin_prefijo_tambien_se_silencia(self):
+        # Sin «self.» ni «this.» delante: la igualdad es el identificador
+        # completo por sí solo. (Con «api_key = api_key» a secas el valor
+        # queda debajo del piso de 16 caracteres y no prueba nada — de ahí
+        # el nombre más largo.)
+        self.assertFalse(list(buscar_asignaciones(
+            "azure_client_secret = azure_client_secret\n", "f.py")))
+
+    def test_el_valor_de_otra_variable_sigue_sonando(self):
+        # El contrapeso: la igualdad tiene que ser con el identificador
+        # asignado, no con cualquier nombre que contenga la palabra
+        # sospechosa. Si el valor viene de OTRO parámetro, sigue siendo
+        # sospechoso.
+        self.assertTrue(list(buscar_asignaciones(
+            "self.token = token_de_otra_variable_123456\n", "f.py")))
+
+    def test_las_credenciales_reales_siguen_sonando(self):
+        # El contraejemplo de la nota del 2026-08-13: una receta anterior,
+        # de memoria y sobre la FORMA del valor, habría silenciado esto.
+        # Esta compara el valor contra el identificador, no contra su forma.
+        for linea in (
+            "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEY",
+            "DB_PASSWORD=Tr0ub4dor3CorreoXk9wZaaaa",
+            "password = otro_valor_largo_diferente_1234",
+        ):
+            self.assertTrue(list(buscar_asignaciones(linea + "\n", ".env")),
+                             linea)
+
+    def test_entrecomillada_no_se_toca(self):
+        # El filtro es sólo para la rama sin comillas: un literal entre
+        # comillas que coincide con el nombre de la variable es mucho menos
+        # probable como parámetro repetido y no está en el caso medido.
+        self.assertTrue(list(buscar_asignaciones(
+            'self.api_key = "api_key_9f8a7b6c5d4e3f2a"\n', "f.py")))

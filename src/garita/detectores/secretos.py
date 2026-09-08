@@ -474,17 +474,25 @@ NOMBRES_SOSPECHOSOS = re.compile(
 _ES_REFERENCIA = re.compile(
     r"(?i)^(\w+\[|\w{1,24}(\.\w{1,24})+$|%s$|None$|null$|true$|false$)"
 )
+# `identificador` es el nombre COMPLETO a la izquierda del signo —con su
+# prefijo, si lo tiene (`self.`, `this.`)—, no sólo la palabra sospechosa
+# (`clave`). Hace falta completo para el filtro de abajo: un constructor que
+# guarda su propio parámetro (`self.azure_client_secret =
+# azure_client_secret`) repite el nombre en el valor, y sin el prefijo
+# `azure_client_secret == azure_client_secret` es indistinguible de una
+# asignación real con el mismo nombre de variable por coincidencia.
 NOMBRES_SOSPECHOSOS_PELON = re.compile(
-    r"(?i)(?:^|[\s])(?:[A-Za-z0-9]+[_.-])*"
-    r"(pass(?:word|wd)?|secret|token|api[_-]?key|apikey|private[_-]?key"
-    r"|service[_-]?role|client[_-]?secret|auth[_-]?token|access[_-]?key)"
+    r"(?i)(?:^|[\s])(?P<identificador>(?:[A-Za-z0-9]+[_.-])*"
+    r"(?P<clave>pass(?:word|wd)?|secret|token|api[_-]?key|apikey"
+    r"|private[_-]?key|service[_-]?role|client[_-]?secret"
+    r"|auth[_-]?token|access[_-]?key))"
     r"\s*[:=]\s*"
     r"(?P<valor>[A-Za-z0-9_./+=-]{16,})\s*$"
 )
 
 
 def _asignaciones_de_la_linea(linea: str):
-    """Los pares (nombre, valor) sospechosos: con comillas y sin ellas."""
+    """Las cuaternas (nombre, valor, sin_comillas, identificador)."""
     vistos = set()
     # `finditer`, no `search` — la misma lección que en `buscar`: si la
     # primera asignación de la línea es un marcador, el `continue` no
@@ -493,18 +501,22 @@ def _asignaciones_de_la_linea(linea: str):
     # El tercer elemento dice de qué rama viene: el filtro de referencias
     # es SÓLO para la pelona. Aplicado también a la entrecomillada mataba
     # las credenciales de prefijo punteado —`hvs.` de Vault, `dp.st.` de
-    # Doppler, `cs.live.`— que v0.23.0 sí reportaba.
+    # Doppler, `cs.live.`— que v0.23.0 sí reportaba. El cuarto sólo lo trae
+    # la pelona, por la misma razón: `identificador` es None en la
+    # entrecomillada porque nunca se usa ahí.
     for m in NOMBRES_SOSPECHOSOS.finditer(linea):
         vistos.add(m.group(3))
-        yield m.group(1), m.group(3), False
+        yield m.group(1), m.group(3), False, None
     for m in NOMBRES_SOSPECHOSOS_PELON.finditer(linea):
         if m.group("valor") not in vistos:
-            yield m.group(1), m.group("valor"), True
+            yield (m.group("clave"), m.group("valor"), True,
+                   m.group("identificador"))
 
 
 def buscar_asignaciones(texto: str, archivo: str) -> Iterator[Hallazgo]:
     for i, linea in enumerate(texto.splitlines(), 1):
-        for nombre, valor, sin_comillas in _asignaciones_de_la_linea(linea):
+        for nombre, valor, sin_comillas, identificador in (
+                _asignaciones_de_la_linea(linea)):
             # Una interpolación no es un secreto: es lo correcto.
             if valor.startswith(("$", "process.env", "os.environ", "env.")):
                 continue
@@ -513,6 +525,17 @@ def buscar_asignaciones(texto: str, archivo: str) -> Iterator[Hallazgo]:
             # código, y marcarlo enseñaría a ignorar al guardián.
             if sin_comillas and _ES_REFERENCIA.match(valor):
                 continue
+            # Ni el patrón más común de un constructor de Python o de JS:
+            # guardar el propio parámetro (`self.token = token`, `this.x =
+            # x`). El valor no es un secreto nuevo, es el nombre del
+            # parámetro repetido — la señal es la IGUALDAD entre el valor y
+            # el identificador, no la forma del valor. Comparar sólo el
+            # último segmento (`rsplit(".")[-1]`) porque el prefijo (`self`,
+            # `this`) no aparece del lado del valor.
+            if sin_comillas:
+                ultimo = identificador.rsplit(".")[-1].lower()
+                if valor.lower() == ultimo:
+                    continue
             if es_marcador(valor):
                 continue
             yield Hallazgo(

@@ -139,11 +139,10 @@ contra los consumidores antes de mover el tag `v0`.
 
 ## 3. Plausible, con receta, sin verificar
 
-Quedan **cuatro**, y dos son nuevos: salieron de correr Garita sobre los
-repositorios que la consumen, no de una oleada. Los ocho de «los cuatro
-canales» se saldaron en **v0.30.0**, los seis del «repositorio hostil» en
-**v0.31.0**, ocho de calibración en **v0.32.0** —con dos refutados— y las
-tres colisiones entre países en **v0.33.0**.
+Quedan **tres**. Los ocho de «los cuatro canales» se saldaron en
+**v0.30.0**, los seis del «repositorio hostil» en **v0.31.0**, ocho de
+calibración en **v0.32.0** —con dos refutados—, las tres colisiones entre
+países en **v0.33.0** y el `self.x = x` de campo en **v0.34.0**.
 
 Las recetas de aquí abajo **no son diseño aprobado**: son la primera idea
 de quien reportó el defecto, y ya pasó una vez que la receta era peor que
@@ -152,27 +151,26 @@ medir antes de escribirlas.
 
 ### Lo que encontró el uso, no la auditoría (2026-08-12)
 
-- [ ] **`self.x = x` se reporta como credencial** — `secretos.py:474`
+- [x] **`self.x = x` se reportaba como credencial** — `secretos.py:474`
   (`_ES_REFERENCIA`), *falso positivo*, **medido con el motor: 17 de los
   20 avisos del consumidor más grande** (ver la corrección de la §5: la
-  primera anotación decía «los 20» y era falsa). El filtro reconoce la referencia con punto
-  (`config.token`) y la indexada (`os.environ[...]`), pero no el caso en
-  que **el valor repite el nombre asignado**: en
+  primera anotación decía «los 20» y era falsa). El filtro reconocía la
+  referencia con punto (`config.token`) y la indexada (`os.environ[...]`),
+  pero no el caso en que **el valor repite el nombre asignado**: en
   `self.azure_client_secret = azure_client_secret` el valor es el
   parámetro del constructor, o sea el patrón más común de Python. La
-  política ya está escrita en el comentario de la función —«no parecer una
-  referencia, que es lo que pone ahí quien hizo las cosas bien»—; falta el
-  caso más frecuente de todos.
+  política ya estaba escrita en el comentario de la función —«no parecer
+  una referencia, que es lo que pone ahí quien hizo las cosas bien»—;
+  faltaba el caso más frecuente de todos. **Saldado en v0.34.0.**
 
-  *Receta:* la señal es la **igualdad entre el valor y el identificador
-  asignado**, no la forma del valor. Tomar el identificador completo a la
-  izquierda del `=` —`_asignaciones_de_la_linea` sólo entrega la cola que
-  casó (`secret`), así que hay que añadirlo al generador o leerlo de la
-  línea— y descartar cuando `valor.lower() == izquierda.rsplit(".")[-1]
-  .lower()`, sólo en la rama SIN comillas. Verificado que separa los ocho
-  casos: silencia los cuatro `self.x = x` (incluido `this.apiSecret =
-  apiSecret`) y deja sonar `AWS_SECRET_ACCESS_KEY=…`, `DB_PASSWORD=…`,
-  una llave hex de 32 y `password = otro_valor_largo`.
+  *Arreglo:* la señal es la **igualdad entre el valor y el identificador
+  asignado**, no la forma del valor. `NOMBRES_SOSPECHOSOS_PELON` ahora
+  captura el identificador completo a la izquierda del `=` (antes sólo
+  entregaba la cola que casó, `secret`) y se descarta cuando
+  `valor.lower() == identificador.rsplit(".")[-1].lower()`, sólo en la
+  rama SIN comillas. Cinco pruebas nuevas: las **dos** que reproducen el
+  defecto, verificadas fallando contra el código anterior, y tres
+  contrapesos que pasan en ambos lados, que es justo lo que se les pide.
 
   > **Nota del 2026-08-13 — la receta anterior era peor que el defecto.**
   > Decía «añadir `\w{1,40}$`, porque un secreto de verdad no es un
@@ -188,6 +186,15 @@ medir antes de escribirlas.
   > caracteres, debajo del piso de 16, así que hoy no produce ningún
   > hallazgo. La moraleja general: **una receta escrita de memoria sobre
   > la forma del valor no vale; hay que correrla.**
+
+  > **Nota al cerrarlo — el `this.apiSecret = apiSecret` de la receta
+  > original nunca fue uno de los casos medidos.** Es camelCase sin
+  > separador, y `NOMBRES_SOSPECHOSOS_PELON` sólo reconoce prefijos
+  > separados por `_`, `.` o `-`: hoy no dispara en absoluto, con o sin
+  > este arreglo, así que no había nada que silenciar ahí. Es un hueco
+  > aparte —los detectores de esta familia no ven camelCase— y no está
+  > medido ni tiene receta; no se abre ítem nuevo sin antes correrlo
+  > contra un repositorio real, por la misma razón que la nota de arriba.
 
 - [ ] **Un motivo repetido palabra por palabra no es un motivo** —
   *nuevo, sin detector*. En un repositorio real, treinta exenciones
