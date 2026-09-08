@@ -139,10 +139,11 @@ contra los consumidores antes de mover el tag `v0`.
 
 ## 3. Plausible, con receta, sin verificar
 
-Quedan **tres**. Los ocho de «los cuatro canales» se saldaron en
-**v0.30.0**, los seis del «repositorio hostil» en **v0.31.0**, ocho de
-calibración en **v0.32.0** —con dos refutados—, las tres colisiones entre
-países en **v0.33.0** y el `self.x = x` de campo en **v0.34.0**.
+Quedan **cuatro**, contando el que trajo el issue 1. Los ocho de «los
+cuatro canales» se saldaron en **v0.30.0**, los seis del «repositorio
+hostil» en **v0.31.0**, ocho de calibración en **v0.32.0** —con dos
+refutados—, las tres colisiones entre países en **v0.33.0**, y el
+`self.x = x` de campo más el escaneo vacío en **v1.0.0**.
 
 Las recetas de aquí abajo **no son diseño aprobado**: son la primera idea
 de quien reportó el defecto, y ya pasó una vez que la receta era peor que
@@ -216,6 +217,45 @@ medir antes de escribirlas.
   marcaría — un falso positivo sobre la configuración más limpia posible.
   Lo que falló en campo fueron treinta entradas SEPARADAS compartiendo un
   texto copiado.
+
+### Los tres chequeos del incidente (issue 1, 2026-08-03)
+
+No salieron de una oleada de auditoría sino de trabajar en
+`cinaba-platform`. Los tres ya habían costado algo real antes de
+anotarse, y eso los pone por delante de cualquier refinamiento de
+detector: **tres deploys fallidos y unos nueve días de producción
+congelada**.
+
+- [x] **Fallar ruidoso si el propio escaneo no completó** — *saldado en
+  **v1.0.0***. Era el que bloqueaba el 1.0, y con razón: un guardián que
+  puede no correr y reportar cero es lo que un desconocido evaluando una
+  herramienta de seguridad consideraría descalificante. «Una comprobación
+  que sale vacía se lee como aprobada», y la propia Garita lo hacía en
+  tres rutas: la revisión normal, `--historial` y `--linea-base` —esta
+  última **borrando la línea base commiteada** y anunciándolo como deuda
+  pagada—. La distinción vive en `Resultado.enumerado`, porque la regla
+  no puede ser «cero revisados es error» a secas: cuando la lista la pone
+  quien llama, un commit de puras imágenes le entrega a Garita puros
+  binarios, y reprobar ahí desinstala el hook. Verificado contra el caso
+  real de `coto-orquideas`, que corre con `solo-cambios: true`.
+
+- [ ] **Archivos versionados que `.gitignore` excluye.** El patrón
+  `*credentials*` —correcto como red de seguridad— se estaba tragando
+  CÓDIGO que vive en el repo por `git add -f`. Garita los ve; `railway up`
+  respeta `.gitignore` y no los subía, así que el build reportaba SUCCESS
+  y el contenedor moría con `ImportError`. *Receta:*
+  `git ls-files | git check-ignore --no-index --stdin`. **El `--no-index`
+  es la clave**: sin él `git check-ignore` omite justamente los archivos
+  rastreados, que son los únicos que importan aquí, y por eso la
+  herramienta obvia decía que todo estaba bien. Encaja con el propósito:
+  Garita ya conoce los patrones de exclusión, sólo falta avisar cuando
+  atrapan fuente en vez de secretos.
+
+- Comparar hallazgos **por hash y no por número de línea** no aplica: la
+  línea base de Garita guarda conteos por archivo y por detector, sin
+  valores y sin líneas, así que editar arriba de un hallazgo no la mueve.
+  El defecto era del gate de `detect-secrets` de ese repositorio. Se deja
+  anotado para no volver a abrirlo.
 
 ### El repositorio hostil — saldado en v0.31.0
 

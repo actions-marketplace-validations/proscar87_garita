@@ -4280,7 +4280,7 @@ class UnNumeroUnHallazgo(unittest.TestCase):
 
 
 class ElParametroQueSeGuardaASiMismo(unittest.TestCase):
-    """v0.34.0: medido con el motor sobre el consumidor más grande, 17 de
+    """v1.0.0: medido con el motor sobre el consumidor más grande, 17 de
     sus 20 avisos eran este único patrón — `self.x = x`, el constructor de
     Python que guarda su propio parámetro. El valor no es un secreto nuevo:
     es el nombre del parámetro repetido. El filtro anterior sólo reconocía

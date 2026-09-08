@@ -56,7 +56,7 @@ wolf gets ignored. With checksum validation, false positives drop by 90× to
 # .pre-commit-config.yaml — start here
 repos:
   - repo: https://github.com/proscar87/garita
-    rev: v0.34.0
+    rev: v1.0.0
     hooks:
       - id: garita
 ```
@@ -64,7 +64,7 @@ repos:
 ```yaml
 # .github/workflows/garita.yml — the backstop
 - uses: actions/checkout@v4
-- uses: proscar87/garita@v0
+- uses: proscar87/garita@v1
 ```
 
 Hook first: if your only check is in CI, by the time it fails the data already

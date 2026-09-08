@@ -162,7 +162,7 @@ guardián.
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/proscar87/garita
-    rev: v0.34.0
+    rev: v1.0.0
     hooks:
       - id: garita
 ```
@@ -188,7 +188,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: proscar87/garita@v0
+      - uses: proscar87/garita@v1
 ```
 
 Es lo que nadie puede saltarse con `--no-verify`. Las dos capas se
