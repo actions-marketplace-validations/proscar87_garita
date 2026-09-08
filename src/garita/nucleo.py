@@ -526,6 +526,26 @@ class Resultado:
     """Los que git rastrea y no se pudieron abrir, CON su motivo. Van
     aparte de los binarios porque no son lo mismo: un binario se decidió
     no revisar; éste no se pudo, y eso no puede terminar en «✓»."""
+    enumerado: bool = False
+    """Si la lista de archivos la sacó `revisar` del índice de git, o se la
+    dio quien llama.
+
+    Distingue los dos sentidos de «cero archivos revisados». Enumerando, es
+    un escaneo que NO OCURRIÓ —el checkout vino vacío, el `cd` cayó en otro
+    directorio, todo se omitió— y no puede salir con «✓». Con lista
+    explícita es el resultado legítimo de lo que se pidió: el hook de
+    pre-commit entrega los archivos del commit, y un commit que sólo toca
+    imágenes le da a Garita puros binarios. Reprobar ahí bloquea un commit
+    limpio, y un guardián que estorba se desinstala."""
+
+    @property
+    def reviso_algo(self) -> bool:
+        """«Escaneé y no encontré nada» contra «no pude escanear».
+
+        La segunda es la que sale vacía y se lee como aprobada — el modo de
+        falla que el incidente del 2026-08-03 produjo tres veces en un día
+        por tres caminos distintos. Sólo la primera merece un ✓."""
+        return self.archivos_revisados > 0 or not self.enumerado
 
     @property
     def errores(self) -> list[Hallazgo]:
@@ -620,7 +640,7 @@ def revisar(
     """Aplica los detectores a los archivos versionados."""
     dets = [d for d in detectores if d.activo]
     exen = list(exenciones)
-    res = Resultado()
+    res = Resultado(enumerado=archivos is None)
     patrones_vistos: set[str] = set()
 
     for rel in (archivos if archivos is not None else archivos_versionados(raiz)):

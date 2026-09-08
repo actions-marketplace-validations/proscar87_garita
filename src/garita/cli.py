@@ -37,8 +37,8 @@ from .linea_base import (
 from .historial import es_somero, revisar_historial
 from .nucleo import revisar
 from .reporte import (
-    anotaciones_github, imprimir, imprimir_historial, resumen_markdown,
-    resumen_markdown_historial,
+    anotaciones_github, escaneo_ausente, imprimir, imprimir_historial,
+    resumen_markdown, resumen_markdown_historial,
 )
 from .reporte_html import (
     generar as generar_html,
@@ -339,6 +339,15 @@ def main(argv: list[str] | None = None) -> int:
     if res.ilegibles:
         return 2
 
+    # Y su forma extrema: no se revisó NADA. Una comprobación que sale
+    # vacía se lee como aprobada, que es el defecto del incidente del
+    # 2026-08-03 —tres veces en un día, por tres caminos distintos—.
+    # También es de entorno, así que también es 2. `reviso_algo` sólo se
+    # aplica cuando Garita enumeró el repositorio: si la lista la puso
+    # quien llama, cero revisados es su resultado y no un escaneo ausente.
+    if not res.reviso_algo:
+        return 2
+
     # Sólo lo nuevo decide el código de salida; la deuda aceptada ya se
     # imprimió aparte y no reprueba.
     if any(h.severidad == "error" for h in nuevos):
@@ -437,6 +446,7 @@ def _historial(args, cfg, detectores, raiz: Path) -> int:
         return 2
     res = revisar_historial(raiz, detectores, cfg.exenciones)
 
+
     if args.formato == "sarif":
         documento = json.dumps(generar_sarif_historial(res, detectores),
                                indent=2, ensure_ascii=False) + "\n"
@@ -467,6 +477,18 @@ def _historial(args, cfg, detectores, raiz: Path) -> int:
         return 2
     if not _salida_de_action(len(res.hallazgos)):
         return 2
+
+    # Gemela del guardián del clon somero de arriba: si no se revisó una
+    # sola versión de archivo, no hay historial que declarar limpio. Un
+    # repositorio sin commits, un `cd` al directorio equivocado o un
+    # checkout que llegó vacío daban «✓ el historial está limpio» con
+    # código 0, y ésta es la ruta de la auditoría programada, la que nadie
+    # mira hasta que hace falta. Va DESPUÉS del reporte a propósito: el
+    # caso del blob grande omitido por tamaño ya nombra el archivo que no
+    # se revisó, y cortar antes cambiaría ese nombre por un error genérico.
+    if not res.reviso_algo:
+        return 2
+
     if res.errores:
         return 1
     if res.avisos and cfg.fallar_en_aviso:
@@ -485,6 +507,24 @@ def _congelar(args, cfg, detectores, raiz: Path, ruta_lb: Path,
         return 2
 
     res = revisar(raiz, detectores, cfg.exenciones)
+
+    # Antes de construir nada: si no se revisó un solo archivo, no hay
+    # «limpio» que declarar. Ésta era la forma DESTRUCTIVA del escaneo
+    # vacío — las demás aprobaban en silencio; ésta borraba la línea base
+    # commiteada, lo anunciaba como deuda pagada y salía con 0, y la
+    # corrida siguiente ya no perdonaba nada. El guardián de
+    # `listas_ausentes` de abajo existe justo para esta distinción y no
+    # cubría el caso de que no hubiera revisión en absoluto.
+    ausente = escaneo_ausente(res)
+    if ausente:
+        print(f"Garita: no congelo nada y NO toco la línea base: {ausente}.",
+              file=sys.stderr)
+        print("  Cero hallazgos aquí no quiere decir que el repositorio esté "
+              "limpio; quiere decir que no se miró nada. Corre "
+              "«--linea-base» donde la revisión sea completa.",
+              file=sys.stderr)
+        return 2
+
     base = construir_linea_base(res.hallazgos, fecha=date.today().isoformat())
 
     if base.total == 0:

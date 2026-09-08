@@ -102,6 +102,7 @@ def generar(res: Resultado, detectores, conocidos=(), cfg=None) -> dict:
     resultados += _alertas_de_lo_no_revisado(res)
     resultados += alertas_de_configuracion(cfg)
     resultados += alertas_de_exenciones_que_apagan(res)
+    resultados += alertas_de_escaneo_ausente(res)
     reglas.setdefault(
         "sin_revisar", "Archivos que Garita no pudo o no debió leer")
 
@@ -182,6 +183,25 @@ def alertas_de_exenciones_que_apagan(res) -> list:
     return [_alerta_sin_revisar(".garita.yml", "error", apagon + ".",
                                 huella=f"apagon:{apagon[:60]}")
             for apagon in exenciones_que_apagan(res)]
+
+
+def alertas_de_escaneo_ausente(res) -> list:
+    """No se revisó nada, dicho en la pestaña Security.
+
+    `error`, por lo mismo que el apagón: no es una reserva sobre el
+    veredicto, es que no hay veredicto. Un SARIF sin alertas sobre una
+    corrida que no leyó un solo archivo es la coartada perfecta, y el
+    SARIF es el único canal de la auditoría mensual.
+    """
+    from .reporte import escaneo_ausente
+
+    ausente = escaneo_ausente(res)
+    if not ausente:
+        return []
+    return [_alerta_sin_revisar(
+        ".", "error", f"Garita no revisó nada: {ausente}. Este resultado no "
+        f"garantiza que el repositorio esté limpio.",
+        huella="escaneo_ausente")]
 
 
 def _alerta_sin_revisar(archivo: str, nivel: str, texto: str,

@@ -89,6 +89,17 @@ class ResultadoHistorial:
     exentos_aplicados: dict[str, int] = field(default_factory=dict)
 
     @property
+    def reviso_algo(self) -> bool:
+        """«Audité el pasado y estaba limpio» contra «no audité nada».
+
+        `--historial` no admite lista de archivos —la rechaza arriba—, así
+        que aquí cero blobs revisados siempre significa lo segundo. Es la
+        misma doctrina del guardián del clon somero que ya vive en el CLI:
+        auditar lo poco visible y decir «limpio» es peor que no auditar.
+        """
+        return self.blobs_revisados > 0
+
+    @property
     def errores(self) -> list[HallazgoHistorico]:
         return [h for h in self.hallazgos if h.hallazgo.severidad == "error"]
 

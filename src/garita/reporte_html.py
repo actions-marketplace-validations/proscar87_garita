@@ -198,9 +198,18 @@ def _seccion_reservas(res, cfg=None) -> str:
     —o con la mitad de los detectores apagados— no es un entregable, es una
     coartada.
     """
-    from .reporte import exenciones_que_apagan, recortes_de_configuracion
+    from .reporte import (escaneo_ausente, exenciones_que_apagan,
+                          recortes_de_configuracion)
 
     bloques = []
+    # Primero, porque le quita el piso a todo lo demás del documento: si no
+    # se revisó nada, ninguna otra cifra de esta página significa algo.
+    ausente = escaneo_ausente(res)
+    if ausente:
+        bloques.append(
+            f'<p class="gris"><b>No hubo revisión:</b> {_E(ausente)}. '
+            f"Este documento no puede usarse como constancia de que el "
+            f"repositorio esté limpio.</p>")
     for apagon in exenciones_que_apagan(res):
         bloques.append(f'<p class="gris"><b>Atención:</b> {_E(apagon)}.</p>')
     if getattr(res, "ilegibles", None):

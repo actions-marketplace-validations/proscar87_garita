@@ -2808,13 +2808,23 @@ class AlcanceDelHistorial(unittest.TestCase):
 
     def test_repo_sin_commits_no_truena(self):
         # HEAD pelón hace fallar a git en un repo recién inicializado; el
-        # alcance lo añade sólo cuando resuelve.
+        # alcance lo añade sólo cuando resuelve. Eso es lo que esta prueba
+        # cuida y sigue cuidando: que no haya traceback.
+        #
+        # El código de salida SÍ cambió: era 0 y ahora es 2. No es una
+        # regresión, es el punto 3 del issue 1 —«una comprobación que sale
+        # vacía se lee como aprobada»—. Un historial sin una sola versión
+        # de archivo no es un historial limpio, y el 0 de antes venía
+        # acompañado de «✓ el historial está limpio», que es la frase que
+        # la herramienta existe para no imprimir.
         with TemporaryDirectory() as d:
             raiz = Path(d)
             subprocess.run(["git", "init", "-q", "-b", "main"],
                            cwd=raiz, check=True)
             codigo, salida = correr_garita(raiz, "--historial")
-            self.assertEqual(codigo, 0, salida)
+            self.assertEqual(codigo, 2, salida)
+            self.assertNotIn("Traceback", salida)
+            self.assertNotIn("historial está limpio", salida)
 
     @unittest.skipIf(os.name == "nt",
                      "las comillas son ilegales en nombres de Windows")
@@ -4322,3 +4332,178 @@ class ElParametroQueSeGuardaASiMismo(unittest.TestCase):
         # probable como parámetro repetido y no está en el caso medido.
         self.assertTrue(list(buscar_asignaciones(
             'self.api_key = "api_key_9f8a7b6c5d4e3f2a"\n', "f.py")))
+
+
+class UnEscaneoVacioNoEsUnaAprobacion(unittest.TestCase):
+    """El punto 3 del issue 1, salido de un incidente real (CINABA,
+    2026-08-03): «una comprobación que sale vacía se lee como aprobada».
+
+    Apareció tres veces en un día por tres caminos distintos —un scan
+    muerto por timeout que reportó «0 nuevos», un grep que nunca corrió
+    por word-splitting, un arnés de mutación con pytest roto—, y los tres
+    son el mismo defecto. Garita tenía su propia versión: revisar CERO
+    archivos imprimía «✓ nada que reportar» y salía con código 0.
+
+    La distinción que faltaba: «escaneé y no encontré nada» contra «no
+    pude escanear». Sólo la primera merece un ✓."""
+
+    LLAVE = "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+
+    def test_repositorio_sin_archivos_versionados_no_aprueba(self):
+        # El caso más puro: git no rastrea nada. Puede ser un repo recién
+        # iniciado, pero también un `cd` al directorio equivocado o un
+        # checkout que no trajo nada — y en esos dos el ✓ es una mentira.
+        with repo_temporal({}) as td:
+            codigo, salida = correr_garita(Path(td))
+        self.assertEqual(codigo, 2, salida)
+        self.assertNotIn("nada que reportar", salida)
+
+    def test_todos_los_archivos_omitidos_no_aprueba(self):
+        # Hay archivos versionados y ninguno se pudo revisar. El resumen
+        # de hoy dice «0 archivos revisados, 1 omitidos» encabezado por un
+        # ✓ verde, que es exactamente el modo de falla del incidente.
+        with repo_temporal({"blob.bin": "\x00\x01\x02binario"}) as td:
+            codigo, salida = correr_garita(Path(td))
+        self.assertEqual(codigo, 2, salida)
+        self.assertNotIn("nada que reportar", salida)
+
+    def test_el_motivo_se_nombra_y_distingue_los_dos_casos(self):
+        # Fallar no basta: el mensaje tiene que decir cuál de los dos
+        # agujeros es, porque el arreglo es distinto. Sin archivos que
+        # rastrear se revisa el checkout; con todos omitidos se revisa qué
+        # los omitió.
+        with repo_temporal({}) as td:
+            _, sin_nada = correr_garita(Path(td))
+        with repo_temporal({"blob.bin": "\x00\x01\x02binario"}) as td:
+            _, todo_omitido = correr_garita(Path(td))
+        self.assertIn("no rastrea ningún archivo", sin_nada)
+        self.assertIn("se omitió", todo_omitido)
+        self.assertNotEqual(sin_nada, todo_omitido)
+
+    def test_un_repositorio_normal_sigue_aprobando(self):
+        # El contrapeso obvio: revisar de verdad y no encontrar nada SÍ es
+        # un ✓ con código 0. Si esta se cae, el arreglo volvió inútil a la
+        # herramienta.
+        with repo_temporal({"app.py": "x = 1\n"}) as td:
+            codigo, salida = correr_garita(Path(td))
+        self.assertEqual(codigo, 0, salida)
+        self.assertIn("nada que reportar", salida)
+
+    def test_una_lista_explicita_de_archivos_no_reprueba(self):
+        # El contrapeso que importa, y la razón de que la regla NO sea
+        # «cero revisados es error» a secas: el hook de pre-commit pasa
+        # los archivos del commit, y un commit que sólo toca imágenes le
+        # entrega a Garita puros binarios. Reprobar ahí bloquea un commit
+        # legítimo, y un guardián que estorba se desinstala. Cuando la
+        # lista la puso quien llama, cero revisados es su resultado, no un
+        # escaneo que no ocurrió.
+        with repo_temporal({"blob.bin": "\x00\x01\x02binario",
+                            "app.py": "x = 1\n"}) as td:
+            codigo, salida = correr_garita(Path(td), "--", "blob.bin")
+        self.assertEqual(codigo, 0, salida)
+
+    def test_el_hallazgo_real_sigue_pesando_mas_que_el_conteo(self):
+        # Un repo donde sí se revisó algo y hay una fuga sale con 1, no
+        # con 2: el orden de los veredictos no se altera.
+        with repo_temporal({"app.py": 'TOKEN = "%s"\n' % self.LLAVE}) as td:
+            codigo, salida = correr_garita(Path(td))
+        self.assertEqual(codigo, 1, salida)
+
+    def test_los_cuatro_canales_lo_dicen(self):
+        # Doctrina de v0.30.0: los cuatro canales dicen lo mismo. El que
+        # más importa aquí es el resumen del job, que es lo que se mira en
+        # un PR sin abrir los registros, y que llegó a imprimir «✅ Nada
+        # que reportar» sobre una corrida que ya salía con código 2.
+        from garita.nucleo import Resultado
+        from garita.reporte import (escaneo_ausente, imprimir,
+                                    resumen_markdown)
+        from garita.reporte_html import generar as generar_html
+        from garita.sarif import generar as generar_sarif
+
+        res = Resultado(enumerado=True)
+        self.assertIsNotNone(escaneo_ausente(res))
+
+        consola = io.StringIO()
+        imprimir(res, salida=consola, sin_color=True)
+        self.assertIn("no revisó nada", consola.getvalue())
+        self.assertNotIn("✓", consola.getvalue())
+
+        md = resumen_markdown(res)
+        self.assertIn("❌", md)
+        self.assertNotIn("✅", md)
+
+        niveles = [r["level"] for r in
+                   generar_sarif(res, [])["runs"][0]["results"]]
+        self.assertIn("error", niveles)
+
+        html = generar_html(res, raiz="r", fecha="2026-09-07")
+        self.assertIn("No hubo revisión", html)
+
+    def test_el_hook_de_pre_commit_no_se_vuelve_un_estorbo(self):
+        # La otra mitad de la regla, dicha en el nivel del motor: cuando la
+        # lista de archivos la pone quien llama, cero revisados NO es un
+        # escaneo ausente. Sin esto, un commit que sólo toca imágenes
+        # quedaba bloqueado y el hook se desinstala a la semana.
+        from garita.nucleo import Resultado
+        from garita.reporte import escaneo_ausente
+
+        self.assertIsNone(escaneo_ausente(Resultado(enumerado=False)))
+        self.assertTrue(Resultado(enumerado=False).reviso_algo)
+        self.assertFalse(Resultado(enumerado=True).reviso_algo)
+
+    def test_no_borra_la_linea_base_cuando_no_reviso_nada(self):
+        # La peor forma del mismo defecto, y la única destructiva: con
+        # `--linea-base`, cero hallazgos sobre cero archivos revisados se
+        # leía como «deuda pagada», BORRABA la línea base commiteada, lo
+        # anunciaba como un logro y salía con 0. La siguiente corrida
+        # normal ya no perdona nada y el equipo pierde el registro de la
+        # deuda aceptada. El guardián de `listas_ausentes` que existe justo
+        # para esto no cubría el caso de que no se revisara nada.
+        with repo_temporal({"b.bin": "\x00\x01\x02bin"}) as td:
+            base = Path(td) / ".garita-base.json"
+            base.write_text(
+                '{"creada": "2026-01-01", "por_archivo": '
+                '{"padron.csv": {"nombre": 40}}}', encoding="utf-8")
+            codigo, salida = correr_garita(Path(td), "--linea-base")
+            sobrevivio = base.is_file()
+        self.assertTrue(sobrevivio,
+                        "borró la línea base sobre un escaneo vacío")
+        self.assertEqual(codigo, 2, salida)
+
+    def test_congelar_sigue_funcionando_donde_si_se_reviso(self):
+        # El contrapeso: en un repositorio de verdad, `--linea-base` sigue
+        # congelando y sigue saliendo con 0.
+        with repo_temporal({"app.py": 'TOKEN = "%s"\n' % self.LLAVE}) as td:
+            codigo, salida = correr_garita(Path(td), "--linea-base")
+            base = (Path(td) / ".garita-base.json").is_file()
+        self.assertEqual(codigo, 0, salida)
+        self.assertTrue(base, salida)
+
+    def test_el_historial_vacio_no_se_declara_limpio(self):
+        # El mismo defecto en la tercera ruta, y la que más pesa: la
+        # auditoría del pasado es el modo programado, el que corre solo y
+        # cuyo resultado nadie va a buscar a los registros. Sin commits,
+        # `--historial` imprimía «✓ el historial está limpio» y salía con
+        # 0. Ya había un guardián para el clon somero, que es la misma
+        # doctrina; faltaba el caso de que no hubiera nada que auditar.
+        with repo_temporal({}) as td:
+            codigo, salida = correr_garita(Path(td), "--historial")
+        self.assertEqual(codigo, 2, salida)
+        self.assertNotIn("historial está limpio", salida)
+
+    def test_el_historial_con_commits_limpios_sigue_aprobando(self):
+        # El contrapeso: un historial que SÍ se auditó y salió limpio
+        # sigue siendo un ✓ con código 0.
+        td = TemporaryDirectory()
+        raiz = Path(td.name)
+        with td:
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=raiz,
+                           check=True)
+            (raiz / "app.py").write_text("x = 1\n", encoding="utf-8")
+            subprocess.run(["git", "add", "-A"], cwd=raiz, check=True)
+            subprocess.run(["git", "-c", "user.name=t", "-c",
+                            "user.email=t@t", "commit", "-q", "-m", "i"],
+                           cwd=raiz, check=True)
+            codigo, salida = correr_garita(raiz, "--historial")
+        self.assertEqual(codigo, 0, salida)
+        self.assertIn("historial está limpio", salida)

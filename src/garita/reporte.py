@@ -65,6 +65,31 @@ def recortes_de_configuracion(cfg) -> list[str]:
     return fuera
 
 
+def escaneo_ausente(res) -> str | None:
+    """La frase única para «no pude escanear», o None si sí se escaneó.
+
+    Vive aquí y no en cada canal por la misma razón que
+    `exenciones_que_apagan`: el defecto que arregla es que un canal diga
+    una cosa y otro diga otra. El resumen del job llegó a imprimir «✅
+    Nada que reportar. 0 archivos revisados» sobre una corrida que salía
+    con código 2, y el panel del job es lo que se mira sin abrir registros.
+
+    Nombra CUÁL de los dos agujeros es: el arreglo difiere. Sin archivos
+    rastreados se revisa el checkout; con todos omitidos se revisa qué los
+    omitió.
+    """
+    if getattr(res, "reviso_algo", True):
+        return None
+    omitidos = getattr(res, "archivos_omitidos", 0)
+    if omitidos == 1:
+        return "el único archivo que git rastrea se omitió"
+    if omitidos:
+        return (f"los {omitidos} archivos que git rastrea se omitieron "
+                f"todos")
+    return ("git no rastrea ningún archivo aquí. Puede ser un repositorio "
+            "recién iniciado, o un checkout que llegó vacío")
+
+
 def exenciones_que_apagan(res) -> list[str]:
     """Las exenciones que cubren TODO lo revisado, dichas con su patrón.
 
@@ -177,6 +202,14 @@ def imprimir(res: Resultado, salida=None, base=None,
                     f"{'s' if len(ilegibles) != 1 else ''} no se "
                     f"pudo{'' if len(ilegibles) == 1 else 'ieron'} leer.",
                     "rojo"), file=salida)
+        elif escaneo_ausente(res):
+            # No hubo escaneo. El ✓ de aquí no decía «no encontré nada»,
+            # decía «no busqué», y son lo mismo sólo para quien lee rápido.
+            causa = escaneo_ausente(res)
+            print(n(f"✗ Garita: no revisó nada. "
+                    f"{causa[0].upper()}{causa[1:]}. "
+                    f"Este resultado no garantiza nada.", "rojo"),
+                  file=salida)
         elif conocidos:
             # Todo lo encontrado quedó cubierto por la línea base. Decir
             # «nada que reportar» a secas sería mentir por omisión.
@@ -373,6 +406,9 @@ def resumen_markdown(res: Resultado, base=None, nuevos=None,
         reservas.append(f"**Configuración**: {recorte}.")
     for apagon in exenciones_que_apagan(res):
         reservas.append(f"**Atención**: {apagon}.")
+    ausente = escaneo_ausente(res)
+    if ausente:
+        reservas.append(f"**No hubo revisión**: {ausente}.")
     # Las exenciones muertas también son una reserva sobre el veredicto:
     # quien escribió la regla cree que sigue tapando algo, y el archivo
     # lleva revisándose sin ella desde que se renombró. Hasta aquí eso sólo
@@ -391,6 +427,10 @@ def resumen_markdown(res: Resultado, base=None, nuevos=None,
                               else "Nada que reportar.")
         if reservas:
             marca, titulo = "⚠️", "Sin hallazgos en lo que se pudo revisar."
+        if ausente:
+            # Ni ✅ ni ⚠️: «sin hallazgos en lo que se pudo revisar» sigue
+            # siendo falso cuando no se pudo revisar nada. Es un ✗.
+            marca, titulo = "❌", "No se revisó nada."
         return (f"## {marca} Garita\n\n{titulo} "
                 f"{res.archivos_revisados} archivos revisados.{deuda}{cola}\n")
 
@@ -443,7 +483,17 @@ def imprimir_historial(res, salida=None, sin_color=False) -> None:
             f"datos).", "gris"), file=salida)
 
     if not res.hallazgos:
-        print(n("✓ Garita: el historial está limpio.", "verde"), file=salida)
+        if not getattr(res, "reviso_algo", True):
+            # Cero hallazgos sobre cero versiones revisadas no es un
+            # historial limpio: es un historial que nadie auditó.
+            print(n("✗ Garita: no audité nada. No se revisó una sola "
+                    "versión de archivo, así que «limpio» no significaría "
+                    "nada aquí. Revisa que sea el repositorio correcto y "
+                    "que el checkout haya traído la historia.", "rojo"),
+                  file=salida)
+        else:
+            print(n("✓ Garita: el historial está limpio.", "verde"),
+                  file=salida)
         return
 
     muertos = [h for h in res.hallazgos if not h.vivo]
@@ -540,6 +590,11 @@ def resumen_markdown_historial(res) -> str:
         f"binarias, muy grandes o sin datos).")
 
     if not res.hallazgos:
+        if not getattr(res, "reviso_algo", True):
+            return (f"## ❌ Garita — auditoría del historial\n\n"
+                    f"**No se auditó nada.** No hay una sola versión de "
+                    f"archivo en el historial, así que «limpio» no "
+                    f"significaría nada. {alcance}{cola}\n")
         marca = "⚠️" if reservas else "✅"
         return (f"## {marca} Garita — auditoría del historial\n\n"
                 f"El historial está limpio. {alcance}{cola}\n")
