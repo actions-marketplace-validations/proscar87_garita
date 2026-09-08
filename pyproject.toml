@@ -19,6 +19,10 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Security",
   "Natural Language :: Spanish",
+  # Hay un README completo en inglés (README.en.md); sin este clasificador
+  # PyPI anuncia la herramienta como monolingüe y la filtra de las
+  # búsquedas en inglés, que es justo donde no nos encuentran.
+  "Natural Language :: English",
 ]
 # Sin dependencias, a propósito: un guardián que exige `pip install` antes de
 # correr es un guardián que la gente pospone, y el que se pospone no protege.
@@ -27,8 +31,15 @@ dependencies = []
 [project.scripts]
 garita = "garita.cli:main"
 
+# Los nombres van en inglés a propósito, aunque el resto del proyecto no:
+# PyPI sólo dibuja el icono de la barra lateral cuando reconoce la etiqueta.
+# «Repositorio» salía como enlace pelado y sin icono.
 [project.urls]
-Repositorio = "https://github.com/proscar87/garita"
+Homepage = "https://github.com/proscar87/garita"
+Documentation = "https://github.com/proscar87/garita/blob/main/README.en.md"
+Repository = "https://github.com/proscar87/garita"
+Issues = "https://github.com/proscar87/garita/issues"
+Changelog = "https://github.com/proscar87/garita/releases"
 
 [tool.setuptools.packages.find]
 where = ["src"]
